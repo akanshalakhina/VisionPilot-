@@ -14,7 +14,7 @@ from backend.agent.llm import LLMClient
 from backend.agent.memory import BanditMemory, MemoryStore
 from backend.agent.planner import AgentRunner
 from backend.agent.targeting import UpliftTargeter
-from backend.agent.tools import AgentServices, variant_names
+from backend.agent.tools import AgentServices, estimate_variants, variant_names
 from backend.config import Settings
 from backend.db import create_run, get_run, list_runs, log_event, update_run
 
@@ -71,14 +71,30 @@ class AgentService:
 
     # ---- read ------------------------------------------------------------
 
+    def state(self) -> dict:
+        """What the dashboard shows beside the runs: settings and what the agent has learned so far."""
+        estimates = estimate_variants(self.services)
+        return {
+            "planner": "llm" if self.llm is not None else "rule_based",
+            "simulated": True,
+            "max_total_budget": self.settings.max_total_budget,
+            "exploration_floor": self.settings.exploration_floor,
+            "credible_interval_percent": estimates["credible_interval_percent"],
+            "variants": estimates["variants"],
+            "history": self.bandit.history(),
+        }
+
     def get(self, run_id: int) -> dict:
         run = get_run(self.settings.db_path, run_id)
         if run is None:
             raise RunNotFound(f"no agent run with id {run_id}")
         return run
 
-    def list(self, limit: int = 20) -> list[dict]:
-        return list_runs(self.settings.db_path, limit)
+    def list(self, limit: int = 20, include_trace: bool = True) -> list[dict]:
+        runs = list_runs(self.settings.db_path, limit)
+        if not include_trace:  # the trace is large, and lists do not need it
+            runs = [{k: v for k, v in run.items() if k != "trace"} for run in runs]
+        return runs
 
     # ---- approve / execute -----------------------------------------------
 

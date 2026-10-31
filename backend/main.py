@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from backend.adapters.base import CampaignPlan
@@ -15,6 +17,9 @@ from backend.agent.targeting import UpliftTargeter
 from backend.config import Settings
 from backend.db import init_db, list_events, log_event
 from ml.simulator.bandit_env import AdEnvironment
+
+
+DASHBOARD_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
 
 class RunRequest(BaseModel):
@@ -87,9 +92,15 @@ def create_app(
         except GuardrailViolation as exc:
             raise HTTPException(status_code=422, detail=str(exc))
 
+    @app.get("/agent/state")
+    def agent_state() -> dict:
+        """Settings and what the agent has learned so far, for the dashboard."""
+        return agent.state()
+
     @app.get("/agent/runs")
-    def agent_runs(limit: int = 20) -> list[dict]:
-        return agent.list(limit)
+    def agent_runs(limit: int = Query(20, ge=1, le=200), include_trace: bool = False) -> list[dict]:
+        """Recent runs, newest first. The tool trace is large, so it is left out unless asked for."""
+        return agent.list(limit, include_trace)
 
     @app.get("/agent/runs/{run_id}")
     def agent_run(run_id: int) -> dict:
@@ -119,7 +130,12 @@ def create_app(
             raise HTTPException(status_code=422, detail=str(exc))
 
     @app.get("/audit")
-    def audit(limit: int = 50) -> list[dict]:
+    def audit(limit: int = Query(50, ge=1, le=500)) -> list[dict]:
         return list_events(settings.db_path, limit=limit)
+
+    # The built dashboard (npm run build in frontend/) is served at "/" when it exists. This is
+    # mounted last so it never shadows an API route.
+    if (DASHBOARD_DIR / "index.html").exists():
+        app.mount("/", StaticFiles(directory=DASHBOARD_DIR, html=True), name="dashboard")
 
     return app

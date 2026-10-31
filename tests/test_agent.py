@@ -267,6 +267,48 @@ def test_api_full_flow_with_approval(client):
     assert any(e["action"] == "agent_plan_executed" for e in client.get("/audit").json())
 
 
+def test_api_state_endpoint_reports_settings_and_what_the_agent_has_learned(client):
+    before = client.get("/agent/state").json()
+    assert before["planner"] == "rule_based" and before["simulated"] is True
+    assert before["max_total_budget"] == 5000.0 and before["exploration_floor"] == 0.01
+    assert len(before["variants"]) == 5 and all(v["estimated_ctr"] is None for v in before["variants"])
+    assert before["history"] == []
+
+    run_id = client.post("/agent/plan", json={"goal": GOAL, "budget": 1000}).json()["id"]
+    client.post(f"/agent/runs/{run_id}/approve", json={"approved": True})
+    client.post(f"/agent/runs/{run_id}/execute")
+
+    after = client.get("/agent/state").json()
+    assert all(v["impressions_seen"] > 0 and 0 < v["ctr_low"] < v["estimated_ctr"] < v["ctr_high"] < 1
+               for v in after["variants"])
+    assert len(after["history"]) == 1 and after["history"][0]["run_id"] == run_id
+
+
+def test_api_run_list_leaves_out_the_trace_unless_asked(client):
+    client.post("/agent/plan", json={"goal": GOAL, "budget": 1000})
+    light = client.get("/agent/runs").json()[0]
+    full = client.get("/agent/runs?include_trace=true").json()[0]
+    assert "trace" not in light and "plan" in light and "explanation" in light
+    assert full["trace"][-1]["tool"] == "propose_plan"
+    assert client.get("/agent/runs?limit=0").status_code == 422
+    assert client.get("/audit?limit=100000").status_code == 422
+
+
+def test_the_built_dashboard_is_served_at_the_root_without_shadowing_the_api(tmp_path, targeter, monkeypatch):
+    import backend.main as main
+
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<!doctype html><title>VisionPilot</title><div id=root></div>")
+    monkeypatch.setattr(main, "DASHBOARD_DIR", dist)
+    settings = Settings(db_path=str(tmp_path / "dash.db"), uplift_customers=4000)
+    served = TestClient(create_app(settings, targeter=targeter))
+
+    assert "VisionPilot" in served.get("/").text
+    assert served.get("/health").json()["status"] == "ok"   # API routes still win
+    assert served.get("/agent/state").status_code == 200
+
+
 def test_api_rejects_bad_requests(client):
     assert client.post("/agent/plan", json={"goal": GOAL, "budget": 99999}).status_code == 422
     assert client.post("/agent/plan", json={"goal": GOAL, "budget": -5}).status_code == 422

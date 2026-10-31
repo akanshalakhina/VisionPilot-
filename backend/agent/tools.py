@@ -37,6 +37,30 @@ class AgentServices:
     exploration_floor: float = EXPLORATION_FLOOR
 
 
+def estimate_variants(services: AgentServices) -> dict:
+    """Click-rate estimate per ad from the agent's learned belief. Ads with no results have null estimates.
+    Shared by the estimate tool and the dashboard's state endpoint, so both always agree."""
+    alpha, beta = services.bandit.state()
+    tail = (100 - CREDIBLE_INTERVAL_PERCENT) / 200
+    rows = []
+    for i, name in enumerate(services.variant_names):
+        impressions = int(round(alpha[i] + beta[i] - 2))
+        if impressions == 0:
+            rows.append({"name": name, "impressions_seen": 0, "clicks_seen": 0,
+                         "estimated_ctr": None, "ctr_low": None, "ctr_high": None})
+            continue
+        rows.append({
+            "name": name,
+            "impressions_seen": impressions,
+            "clicks_seen": int(round(alpha[i] - 1)),
+            "estimated_ctr": float(alpha[i] / (alpha[i] + beta[i])),
+            "ctr_low": float(beta_dist.ppf(tail, alpha[i], beta[i])),
+            "ctr_high": float(beta_dist.ppf(1 - tail, alpha[i], beta[i])),
+        })
+    return {"credible_interval_percent": CREDIBLE_INTERVAL_PERCENT, "variants": rows,
+            "note": "Estimates come from simulated results only. A null estimate means no results yet."}
+
+
 def _schema(name: str, description: str, properties: dict, required: list[str]) -> dict:
     return {
         "type": "function",
@@ -126,25 +150,7 @@ class ToolBox:
         return {"variants": list(self.s.variant_names), "variant_count": len(self.s.variant_names)}
 
     def _estimate_variant_ctr(self) -> dict:
-        alpha, beta = self.s.bandit.state()
-        low_q, high_q = (100 - CREDIBLE_INTERVAL_PERCENT) / 200, 1 - (100 - CREDIBLE_INTERVAL_PERCENT) / 200
-        rows = []
-        for i, name in enumerate(self.s.variant_names):
-            impressions = int(round(alpha[i] + beta[i] - 2))
-            if impressions == 0:
-                rows.append({"name": name, "impressions_seen": 0, "clicks_seen": 0,
-                             "estimated_ctr": None, "ctr_low": None, "ctr_high": None})
-                continue
-            rows.append({
-                "name": name,
-                "impressions_seen": impressions,
-                "clicks_seen": int(round(alpha[i] - 1)),
-                "estimated_ctr": float(alpha[i] / (alpha[i] + beta[i])),
-                "ctr_low": float(beta_dist.ppf(low_q, alpha[i], beta[i])),
-                "ctr_high": float(beta_dist.ppf(high_q, alpha[i], beta[i])),
-            })
-        return {"credible_interval_percent": CREDIBLE_INTERVAL_PERCENT, "variants": rows,
-                "note": "Estimates come from simulated results only. A null estimate means no results yet."}
+        return estimate_variants(self.s)
 
     def _recall_past_runs(self) -> dict:
         runs = self.s.bandit.history()[-3:]
