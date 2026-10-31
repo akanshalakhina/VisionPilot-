@@ -18,8 +18,7 @@ The decisions come from models trained in this repo (click prediction, a budget 
 | Benchmark: 50 tasks, safety layer vs 6 misbehaving scripted LLMs, decision quality vs baselines in 6 synthetic settings | Written and run. All tasks pass. Thompson sampling did not beat simple greedy. The exploration floor was lowered from 5% to 1% after the benchmark showed it cost clicks, see `docs/benchmark.md`. The real-LLM parts (`--llm`) have not been run |
 | Uplift targeting: S-, T- and X-learner vs a response baseline, Qini/AUUC, bootstrap intervals | Written. Works on the synthetic generator (known true effect). Not yet run on real Criteo data, see `docs/kaggle_training.md` |
 | Agent shell: tool-using planner (offline rule-based or any OpenAI-compatible LLM), memory that learns from executed runs, grounding check on every number, propose / approve / execute flow | Written and tested. The LLM path is tested with a scripted model and a mock transport only, never against a live provider. See `docs/agent.md` |
-| React dashboard | Planned |
-| Agent benchmark (50 tasks) and ablations | Planned |
+| React dashboard: ask for a plan, approve or reject it, run it in the simulator, see what the agent has learned, read the audit log | Built and checked by hand in a browser, with no automated frontend tests. It has no login, so anyone who can reach the server can approve. See `docs/dashboard.md` |
 
 ## Quick start (Windows PowerShell)
 
@@ -29,17 +28,22 @@ python -m venv .venv
 pip install -e ".[dev]"
 pytest
 python -m ml.bandit.experiment --seed 0 --out reports/bandit_demo.json
+cd frontend; npm install; npm run build; cd ..
 uvicorn backend.main:create_app --factory --reload
 ```
+
+Open http://127.0.0.1:8000/ for the dashboard and http://127.0.0.1:8000/docs for the API. Without `npm run build` the backend still works and serves only the API.
 
 Copy `.env.example` to `.env` to change settings. Never commit `.env`.
 
 ## Layout
 
 ```
-backend/    FastAPI app, execution adapters, guardrails, audit log
-ml/         data loaders, simulator, bandit policies, off-policy evaluation, CTR predictor
-docs/       how to train on Kaggle
+backend/    FastAPI app, execution adapters, guardrails, audit log, the agent
+ml/         data loaders, simulator, bandit policies, off-policy evaluation, CTR predictor, uplift
+benchmark/  the 50-task benchmark, misbehaving scripted LLMs, decision-quality study
+frontend/   React dashboard (Vite). `npm run build` writes frontend/dist, which the backend serves at /
+docs/       agent design, benchmark write-up, dashboard, how to train on Kaggle
 tests/      pytest suite (fabricated fixtures in tests/fakes.py)
 reports/    experiment outputs (small JSON)
 ```
