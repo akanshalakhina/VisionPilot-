@@ -1,0 +1,23 @@
+# Render Blueprint: one web service that runs the API and serves the dashboard.
+# In Render choose New > Blueprint and select this repository.
+services:
+  - type: web
+    name: visionpilot
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: MAX_TOTAL_BUDGET
+        value: "10000"
+      - key: EXPLORATION_FLOOR
+        value: "0.01"
+    # The free plan has no persistent disk, so the SQLite file (learned beliefs, runs and the
+    # audit log) is reset on every restart or deploy. To keep it, move to a paid plan, then add:
+    #   disk:
+    #     name: visionpilot-data
+    #     mountPath: /var/data
+    #     sizeGB: 1
+    # and add an env var DB_PATH with the value /var/data/visionpilot.db
+    #
+    # Optional language model: add LLM_PROVIDER, LLM_MODEL and LLM_API_KEY in the Render
+    # dashboard with your OWN key. Never put the key in this file.

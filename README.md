@@ -195,7 +195,9 @@ visionpilot-agent/
 ├── frontend/              React dashboard (Vite)
 ├── tests/                 pytest suite
 ├── docs/                  design notes and images
-└── reports/               saved experiment results (JSON)
+├── reports/               saved experiment results (JSON)
+├── Dockerfile             builds the dashboard and runs the API in one image
+└── render.yaml            Render Blueprint for a one-service deployment
 ```
 
 ## 9. Getting started
@@ -389,10 +391,32 @@ Datasets are not included in this repository. Download them yourself, check each
 
 ## 15. Deployment notes
 
-- **Locally**: the quick start above is the supported path.
-- **Hosting the dashboard**: the Vite build in `frontend/dist` is a static site and can be served from any static host.
-- **Hosting the backend**: it keeps plans, memory and the audit log in a SQLite file, so it needs a host with a persistent disk (a normal server or container). Serverless platforms with an ephemeral filesystem would lose the agent's memory between requests.
-- **Before any public URL**: add authentication. Without it, anyone can approve and run plans.
+VisionPilot deploys as **one service**: the API also serves the built dashboard, and the dashboard calls the API at its own address, so no extra settings or cross-site configuration are needed.
+
+### With Docker
+
+```bash
+docker build -t visionpilot .
+docker run -p 8000:8000 visionpilot
+```
+
+Open <http://localhost:8000/>. The image builds the dashboard with Node, then runs the API with Python 3.11. It reads the `PORT` variable that hosts set and falls back to 8000.
+
+### On Render
+
+1. Push this repository to GitHub.
+2. In Render choose **New, then Blueprint**, and select the repository. `render.yaml` describes the service.
+3. Deploy, then open `/health` on the new address to confirm it is running.
+
+No key is needed. To add a language model, set `LLM_PROVIDER`, `LLM_MODEL` and `LLM_API_KEY` in the Render dashboard with your own key.
+
+### What to know before deploying
+
+- **Storage is SQLite.** On a free plan the file is reset on every restart or deploy, so the agent forgets what it learned. To keep it, use a paid plan with a persistent disk and set `DB_PATH` to a path on that disk (see the comments in `render.yaml`).
+- **Serverless hosts are a poor fit for the backend.** Their filesystem is not kept between requests, so a plan could vanish between "propose" and "approve".
+- **The first plan after a start is slower.** The uplift model is trained on first use.
+- **Add authentication before sharing a public link.** Without it, anyone can approve and run plans. They only run in the simulator, but they would change what the agent learns and fill the audit log.
+- **Tested locally, not on Render.** The start command, the dashboard at `/` and a full propose, approve and execute run were checked on a local machine. The Docker image itself and the Render Blueprint have not been built or deployed.
 
 ## 16. Documentation index
 
